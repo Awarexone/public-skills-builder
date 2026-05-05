@@ -39,6 +39,16 @@ except ImportError:
 H1_API_BASE   = "https://api.hackerone.com/v1"
 H1_WEB_GQL    = "https://hackerone.com/graphql"
 
+# Curated list of high-disclosure H1 programs.
+# H1's GraphQL no longer accepts an unfiltered hacktivity query; reports must be
+# fetched per-program. This list is the budget across which --limit is divided.
+H1_POPULAR_PROGRAMS = [
+    "shopify", "gitlab", "internet-bug-bounty", "github", "hackerone",
+    "node-js", "python", "ruby", "rails", "discord", "uber", "paypal",
+    "yelp", "airbnb", "kubernetes", "mozilla", "hashicorp", "twitch",
+    "snapchat", "rockstargames", "dropbox", "reddit", "valve", "ibb",
+]
+
 GITHUB_WRITEUP_REPOS = [
     # (owner, repo, path_to_writeups_list_or_readme)
     ("ngalongc", "bug-bounty-reference", "README.md"),
@@ -164,108 +174,105 @@ def fetch_h1_disclosed(api_key: str, program: str | None, limit: int) -> list[di
 
 def fetch_h1_hacktivity(limit: int, program: str | None = None) -> list[dict]:
     """
-    Fetch public hacktivity from HackerOne's web GraphQL (no auth).
-    Returns disclosed reports from the public feed.
+    Fetch public disclosed reports from HackerOne's web GraphQL (no auth).
+
+    H1's current schema requires a per-program handle (the bare global
+    hacktivity feed is gone), so this iterates a curated program list and
+    distributes the limit across them. Pass --program to narrow to one.
     """
-    reports = []
-    cursor = None
     headers = {
         "Content-Type": "application/json",
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
     }
 
-    print(f"[*] Fetching H1 public hacktivity feed (limit={limit})...")
-
     query = """
-    query HacktivityFeed($after: String, $program: [String]) {
-      hacktivity: reports(
-        filter: {
-          reporter: [],
-          disclosed_at__lt: "2099-01-01"
-          program: $program
-        }
-        first: 25
-        after: $after
-        order_by: {field: disclosed_at, direction: DESC}
-      ) {
-        pageInfo { hasNextPage endCursor }
-        nodes {
-          id
-          title
-          disclosed_at
-          severity { rating }
-          weakness { name }
-          team { handle name }
-        }
-      }
-    }
-    """
-
-    # Fallback: use the simpler public endpoint
-    simple_query = """
-    query {
-      reports(filter: {reporter: [], disclosed_at__lt: "2099-01-01"}, first: 25) {
-        nodes {
-          id title disclosed_at
-          severity { rating }
-          weakness { name }
-          team { handle }
+    query ProgramReports($handle: String!, $after: String, $first: Int!) {
+      reports(handle: $handle, first: $first, after: $after) {
+        edges {
+          node {
+            _id
+            title
+            url
+            disclosed_at
+            substate
+            severity { rating }
+            weakness { name }
+            team { handle }
+          }
         }
         pageInfo { hasNextPage endCursor }
       }
     }
     """
 
-    while len(reports) < limit:
-        variables = {"after": cursor}
-        if program:
-            variables["program"] = [program]
+    programs = [program] if program else H1_POPULAR_PROGRAMS
+    per_program = max(20, limit // len(programs) + 1)
+    reports: list[dict] = []
 
-        try:
-            resp = requests.post(
-                H1_WEB_GQL,
-                headers=headers,
-                json={"query": simple_query},
-                timeout=15,
-            )
-        except requests.RequestException as e:
-            print(f"[!] Hacktivity fetch error: {e}")
+    print(f"[*] Fetching H1 hacktivity (limit={limit}, programs={len(programs)}, ~{per_program}/program)...")
+
+    for handle in programs:
+        if len(reports) >= limit:
             break
 
-        if not resp.ok:
-            print(f"[!] Hacktivity returned {resp.status_code}")
-            break
+        cursor = None
+        prog_count = 0
 
-        data = resp.json()
-        if "errors" in data:
-            print(f"[!] GraphQL errors: {data['errors']}")
-            break
+        while prog_count < per_program and len(reports) < limit:
+            page_size = min(100, per_program - prog_count)
+            variables = {"handle": handle, "after": cursor, "first": page_size}
 
-        nodes = data.get("data", {}).get("reports", {}).get("nodes", [])
-        page_info = data.get("data", {}).get("reports", {}).get("pageInfo", {})
+            try:
+                resp = requests.post(
+                    H1_WEB_GQL,
+                    headers=headers,
+                    json={"query": query, "variables": variables},
+                    timeout=15,
+                )
+            except requests.RequestException as e:
+                print(f"[!] {handle}: fetch error {e}")
+                break
 
-        for node in nodes:
-            if node.get("disclosed_at"):
+            if not resp.ok:
+                print(f"[!] {handle}: HTTP {resp.status_code}")
+                break
+
+            data = resp.json()
+            if "errors" in data:
+                print(f"[!] {handle}: GraphQL errors {data['errors'][0].get('message', '')}")
+                break
+
+            r = (data.get("data") or {}).get("reports") or {}
+            edges = r.get("edges") or []
+            page_info = r.get("pageInfo") or {}
+
+            for edge in edges:
+                node = edge.get("node") or {}
+                if not node.get("disclosed_at"):
+                    continue
                 reports.append({
                     "source":      "hackerone_public",
-                    "id":          node.get("id"),
+                    "id":          node.get("_id"),
                     "title":       node.get("title", ""),
-                    "severity":    node.get("severity", {}).get("rating", "") if node.get("severity") else "",
-                    "weakness":    node.get("weakness", {}).get("name", "") if node.get("weakness") else "",
-                    "description": "",  # public feed doesn't include body
+                    "severity":    (node.get("severity") or {}).get("rating", ""),
+                    "weakness":    (node.get("weakness") or {}).get("name", ""),
+                    "description": "",  # body is hidden from public hacktivity
                     "impact":      "",
-                    "program":     node.get("team", {}).get("handle", "") if node.get("team") else "",
-                    "url":         f"https://hackerone.com/reports/{node.get('id')}",
+                    "program":     (node.get("team") or {}).get("handle", handle),
+                    "url":         node.get("url") or f"https://hackerone.com/reports/{node.get('_id')}",
                     "disclosed_at": node.get("disclosed_at", ""),
                 })
+                prog_count += 1
 
-        if not page_info.get("hasNextPage") or not nodes:
-            break
+            if not page_info.get("hasNextPage") or not edges:
+                break
+            cursor = page_info.get("endCursor")
+            time.sleep(0.3)
 
-        cursor = page_info.get("endCursor")
-        time.sleep(0.5)
+        print(f"[+] {handle}: {prog_count} reports")
+        time.sleep(0.3)
 
-    print(f"[+] Fetched {len(reports)} public hacktivity reports")
+    print(f"[+] Total H1 hacktivity reports: {len(reports)}")
     return reports[:limit]
 
 
@@ -278,10 +285,10 @@ def fetch_github_writeups(limit: int) -> list[dict]:
     Parse awesome writeup repos from GitHub and extract report links + titles.
     No auth needed for public repos.
     """
-    github_token = os.getenv("GITHUB_TOKEN", "")
+    # raw.githubusercontent.com 404s when sent an Authorization: token header,
+    # so the GITHUB_TOKEN is intentionally omitted here. (The token is only
+    # useful for api.github.com rate limits, which we don't hit on raw fetches.)
     headers = {"User-Agent": "public-skills-builder"}
-    if github_token:
-        headers["Authorization"] = f"token {github_token}"
 
     reports = []
     print("[*] Fetching GitHub writeup collections...")
