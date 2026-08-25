@@ -6,15 +6,17 @@
 
 # Public Skills Builder
 
-**Generate Claude Code bug bounty skills from public HackerOne reports and GitHub writeups — no private reports needed.**
+**Generate Claude Code bug bounty skills from public HackerOne reports and GitHub writeups - no private reports needed.**
 
-Feed it 500+ public bug bounty reports. Get back 18 ready-to-use Claude Code skill files — one per vulnerability class — packed with real-world techniques, payloads, and bypass patterns.
+Feed it 500+ public bug bounty reports. Get back 18 ready-to-use Claude Code skill files - one per vulnerability class - packed with real-world techniques, payloads, and bypass patterns.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://python.org)
-[![Stars](https://img.shields.io/github/stars/shuvonsec/public-skills-builder?style=social)](https://github.com/shuvonsec/public-skills-builder/stargazers)
+[![Stars](https://img.shields.io/github/stars/Awarexone/public-skills-builder?style=social)](https://github.com/Awarexone/public-skills-builder/stargazers)
 
 [Quick Start](#quick-start) · [Output](#output) · [Sources](#sources) · [Usage](#usage)
+
+Built and maintained by **AwareXone** - [Website](https://awarexone.com) · [X](https://x.com/awarexone) · [GitHub](https://github.com/Awarexone)
 
 </div>
 
@@ -31,7 +33,7 @@ No private reports required. Everything comes from public data.
 ## Quick Start
 
 ```bash
-git clone https://github.com/shuvonsec/public-skills-builder
+git clone https://github.com/Awarexone/public-skills-builder
 cd public-skills-builder
 
 python3 -m venv .venv
@@ -39,7 +41,7 @@ source .venv/bin/activate
 pip install anthropic requests
 
 cp .env.example .env
-# Edit .env — add your ANTHROPIC_API_KEY
+# Edit .env - add your ANTHROPIC_API_KEY
 ```
 
 ---
@@ -90,7 +92,7 @@ python3 public_skills_builder.py --source github
 # HackerOne public disclosed reports (no H1 key needed)
 python3 public_skills_builder.py --source h1-public
 
-# Everything — all sources, all vuln classes
+# Everything - all sources, all vuln classes
 python3 public_skills_builder.py --source all --limit 500
 
 # Specific vuln classes only
@@ -126,9 +128,9 @@ Or copy skill files into your Claude Code project's `.claude/` directory so they
 ## Requirements
 
 - Python 3.10+
-- `ANTHROPIC_API_KEY` — from [console.anthropic.com](https://console.anthropic.com)
-- `H1_API_KEY` — optional, from [hackerone.com/settings/api_token](https://hackerone.com/settings/api_token)
-- `GITHUB_TOKEN` — optional, increases GitHub API rate limits
+- `ANTHROPIC_API_KEY` - from [console.anthropic.com](https://console.anthropic.com)
+- `H1_API_KEY` - optional, from [hackerone.com/settings/api_token](https://hackerone.com/settings/api_token)
+- `GITHUB_TOKEN` - optional, increases GitHub API rate limits
 
 ---
 
